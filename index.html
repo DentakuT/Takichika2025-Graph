@@ -130,11 +130,7 @@
         margin: 0 auto;
     }
 
-    .rate-plus { color: #27ae60; font-weight: bold; }
-    .rate-minus { color: #c0392b; font-weight: bold; }
-    .rate-zero { color: #7f8c8d; }
-
-    /* 追加：ページ下部のランキングエリア */
+    /* ページ下部のランキングエリア */
     .extra-rankings-container {
         display: flex;
         flex-wrap: wrap;
@@ -203,8 +199,7 @@
                 <tr>
                     <th>順位</th>
                     <th>名前</th>
-                    <th>1月レート</th>
-                    <th>前月比</th>
+                    <th>最終レート</th>
                 </tr>
             </thead>
             <tbody id="rankings-body">
@@ -212,10 +207,10 @@
         </table>
     </div>
 
-    <!-- 追加：ページ下部のランキングエリア -->
+    <!-- ページ下部のランキングエリア -->
     <div class="extra-rankings-container">
         <div class="ranking-card">
-            <h3>👑 平均順位 トップ5</h3>
+            <h3>👑 平均順位 トップ5 <span style="font-size: 0.6em; color: #7f8c8d; font-weight: normal;">(5局以上)</span></h3>
             <ul class="ranking-list" id="rank-avg"></ul>
         </div>
         <div class="ranking-card">
@@ -232,9 +227,6 @@
 <script>
 document.addEventListener('DOMContentLoaded', generateRankings);
 
-/**
- * 名前の表記揺れを吸収する関数
- */
 function normalizeName(name) {
     if (!name) return "";
     let normalized = name.replace(/[\(（].*?[\)）]/g, "");
@@ -250,7 +242,7 @@ async function generateRankings() {
     const tableBody = document.getElementById("rankings-body");
     const months = ["開始", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月", "1月"];
     
-    tableBody.innerHTML = '<tr><td colspan="4" style="text-align:center;">読み込み中...</td></tr>';
+    tableBody.innerHTML = '<tr><td colspan="3" style="text-align:center;">読み込み中...</td></tr>';
 
     try {
         const [res1, res2] = await Promise.all([
@@ -261,12 +253,10 @@ async function generateRankings() {
         if (!res1.ok) throw new Error("メインデータ(data.txt)が見つかりません");
         const data = await res1.text();
 
-        // data2.txtの解析（点数から順位と最高得点を自動計算するロジック）
         const statsData = {};
         if (res2 && res2.ok) {
             const data2 = await res2.text();
             
-            // 空白行で対局ブロックごとに分割
             const games = data2.split(/\n\s*\n/);
             
             for (const game of games) {
@@ -285,18 +275,14 @@ async function generateRankings() {
                 
                 if (gamePlayers.length === 0) continue;
 
-                // 【自動判定】ゲーム内の最大点数が2000以上なら「素点」、それ未満なら「1/100ポイント」と判断
                 const isRawScore = gamePlayers.some(p => Math.abs(p.score) > 2000);
                 
-                // 点数が高い順にソート（並び替え）
                 gamePlayers.sort((a, b) => b.score - a.score);
                 
-                // 1位〜4位と最高得点を割り当てて集計
                 gamePlayers.forEach((player, index) => {
                     const rank = index + 1;
                     const normalizedName = normalizeName(player.name);
                     
-                    // ポイントの場合は100倍して実際の点数に変換
                     const actualScore = isRawScore ? player.score : player.score * 100;
                     
                     if (!statsData[normalizedName]) {
@@ -306,7 +292,6 @@ async function generateRankings() {
                     if (rank >= 1 && rank <= 4) {
                         statsData[normalizedName][rank]++;
                         statsData[normalizedName].total++;
-                        // 最高得点を更新
                         if (actualScore > statsData[normalizedName].maxScore) {
                             statsData[normalizedName].maxScore = actualScore;
                         }
@@ -315,7 +300,6 @@ async function generateRankings() {
             }
         }
         
-        // data.txtの解析
         const players = data.trim().split('\n').map(line => {
             const parts = line.split(':');
             if (parts.length < 11) return null;
@@ -325,9 +309,8 @@ async function generateRankings() {
             const graphData = [0, ...history]; 
             
             const currentRate = history[9];
-            const prevRate = history[8];
             
-            return { name, graphData, currentRate, change: currentRate - prevRate };
+            return { name, graphData, currentRate };
         }).filter(p => p !== null);
 
         players.sort((a, b) => b.currentRate - a.currentRate);
@@ -337,27 +320,19 @@ async function generateRankings() {
         players.forEach((player, index) => {
             const row = document.createElement('tr');
             
-            let changeClass = 'rate-zero';
-            let changeText = player.change;
-            if (player.change > 0) { changeClass = 'rate-plus'; changeText = `+${player.change}`; }
-            else if (player.change < 0) { changeClass = 'rate-minus'; }
-
             row.innerHTML = `
                 <td>${index + 1}</td>
                 <td><span class="player-name" onclick="toggleGraph(${index})">${player.name}</span></td>
                 <td>${player.currentRate}</td>
-                <td class="${changeClass}">${changeText}</td>
             `;
             tableBody.appendChild(row);
 
-            // 表示する際も、data.txtの名前を正規化してstatsDataから検索する
             const normalizedPlayerName = normalizeName(player.name);
             const pStats = statsData[normalizedPlayerName];
             
             let statsHtml = '';
             
             if (pStats && pStats.total > 0) {
-                // playerオブジェクトに統計情報を保存（下部のランキング用）
                 player.stats = {
                     total: pStats.total,
                     avgRank: (pStats[1]*1 + pStats[2]*2 + pStats[3]*3 + pStats[4]*4) / pStats.total,
@@ -400,7 +375,7 @@ async function generateRankings() {
             const graphRow = document.createElement('tr');
             graphRow.className = 'graph-row';
             graphRow.innerHTML = `
-                <td colspan="4" style="padding:0; border:none;">
+                <td colspan="3" style="padding:0; border:none;">
                     <div id="container-${index}" class="graph-container">
                         <div class="details-flex">
                             ${statsHtml}
@@ -417,30 +392,34 @@ async function generateRankings() {
         });
 
         // ----------------------------------------------------
-        // ▼ ページ下部のランキング用データの生成 ▼
+        // ▼ ランキングデータの生成 ▼
         // ----------------------------------------------------
         const validPlayers = players.filter(p => p.stats !== null);
 
-        // 1. 平均順位ランキング（昇順：数値が低いほど良い）
-        const avgSorted = [...validPlayers].sort((a, b) => a.stats.avgRank - b.stats.avgRank).slice(0, 5);
+        // 1. 平均順位ランキング（5局以上のみ対象、昇順）
+        const avgSorted = validPlayers
+            .filter(p => p.stats.total >= 5)
+            .sort((a, b) => a.stats.avgRank - b.stats.avgRank)
+            .slice(0, 5);
+            
         document.getElementById("rank-avg").innerHTML = avgSorted.map((p, i) => 
             `<li><span><span class="rank-badge">${i+1}</span> ${p.name}</span> <span class="ranking-value">${p.stats.avgRank.toFixed(2)}位<span class="ranking-sub">(${p.stats.total}局)</span></span></li>`
         ).join('');
 
-        // 2. 対局数ランキング（降順：数値が高いほど良い）
+        // 2. 対局数ランキング
         const totalSorted = [...validPlayers].sort((a, b) => b.stats.total - a.stats.total).slice(0, 5);
         document.getElementById("rank-total").innerHTML = totalSorted.map((p, i) => 
             `<li><span><span class="rank-badge">${i+1}</span> ${p.name}</span> <span class="ranking-value">${p.stats.total}局</span></li>`
         ).join('');
 
-        // 3. 最高得点ランキング（降順：数値が高いほど良い）
+        // 3. 最高得点ランキング
         const scoreSorted = [...validPlayers].sort((a, b) => b.stats.maxScore - a.stats.maxScore).slice(0, 5);
         document.getElementById("rank-score").innerHTML = scoreSorted.map((p, i) => 
             `<li><span><span class="rank-badge">${i+1}</span> ${p.name}</span> <span class="ranking-value">${p.stats.maxScore.toLocaleString()}点</span></li>`
         ).join('');
 
     } catch (error) {
-        tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center;">エラー: ${error.message}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="3" style="text-align:center;">エラー: ${error.message}</td></tr>`;
     }
 }
 
