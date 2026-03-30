@@ -169,10 +169,17 @@ document.addEventListener('DOMContentLoaded', generateRankings);
  */
 function normalizeName(name) {
     if (!name) return "";
-    // 大文字を小文字に変換
-    let normalized = name.toLowerCase();
     
-    // カタカナをひらがなに変換
+    // 1. カッコ「()」「（）」とその中身を削除する
+    let normalized = name.replace(/[\(（].*?[\)）]/g, "");
+    
+    // 2. 前後の不要な空白を削除
+    normalized = normalized.trim();
+    
+    // 3. 大文字を小文字に変換
+    normalized = normalized.toLowerCase();
+    
+    // 4. カタカナをひらがなに変換
     normalized = normalized.replace(/[\u30A1-\u30F6]/g, function(match) {
         return String.fromCharCode(match.charCodeAt(0) - 0x60);
     });
