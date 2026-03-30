@@ -210,7 +210,7 @@
     <!-- ページ下部のランキングエリア -->
     <div class="extra-rankings-container">
         <div class="ranking-card">
-            <h3>👑 平均順位 トップ5 <span style="font-size: 0.6em; color: #7f8c8d; font-weight: normal;">(5局以上)</span></h3>
+            <h3>👑 平均順位 トップ5 <span style="font-size: 0.6em; color: #7f8c8d; font-weight: normal;">(10局以上)</span></h3>
             <ul class="ranking-list" id="rank-avg"></ul>
         </div>
         <div class="ranking-card">
@@ -396,9 +396,9 @@ async function generateRankings() {
         // ----------------------------------------------------
         const validPlayers = players.filter(p => p.stats !== null);
 
-        // 1. 平均順位ランキング（5局以上のみ対象、昇順）
+        // 1. 平均順位ランキング（10局以上のみ対象、昇順）
         const avgSorted = validPlayers
-            .filter(p => p.stats.total >= 5)
+            .filter(p => p.stats.total >= 10) // ★ここで10局以上に絞り込み
             .sort((a, b) => a.stats.avgRank - b.stats.avgRank)
             .slice(0, 5);
             
