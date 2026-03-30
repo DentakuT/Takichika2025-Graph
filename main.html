@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>滝地下麻雀順位表 (時系列グラフ版)</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        line-height: 1.6;
+        background-color: #f9f9f9;
+        color: #333;
+        margin: 0;
+    }
+    .header {
+        background-color: #2c3e50;
+        color: #ecf0f1;
+        padding: 1rem;
+        text-align: center;
+    }
+    .main-content {
+        max-width: 900px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+    }
+    .table-container {
+        overflow-x: auto;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        border-radius: 8px;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        background-color: #fff;
+    }
+    th, td {
+        border-bottom: 1px solid #ddd;
+        padding: 12px 15px;
+        text-align: left;
+    }
+    thead th {
+        background-color: #34495e;
+        color: #ecf0f1;
+    }
+
+    /* 名前をボタン風にする */
+    .player-name {
+        color: #3498db;
+        cursor: pointer;
+        text-decoration: underline;
+        font-weight: bold;
+    }
+    .player-name:hover {
+        color: #2980b9;
+    }
+
+    /* グラフを表示する隠し行のスタイル */
+    .graph-row {
+        background-color: #fff;
+    }
+    .graph-container {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.5s ease-out; /* これが「にょーん」の正体 */
+        background-color: #fcfcfc;
+    }
+    .graph-container.open {
+        max-height: 400px; /* 十分な高さを指定 */
+        padding: 10px 0;
+    }
+    canvas {
+        max-width: 100%;
+        margin: 0 auto;
+    }
+
+    .rate-plus { color: #27ae60; font-weight: bold; }
+    .rate-minus { color: #c0392b; font-weight: bold; }
+    .rate-zero { color: #7f8c8d; }
+</style>
+</head>
+<body>
+
+<header class="header">
+    <h1>滝地下麻雀順位表<br>(2025年度)</h1>
+    <p>名前をクリックすると推移グラフが表示されます</p>
+</header>
+
+<main class="main-content">
+    <div class="table-container">
+        <table id="rankings">
+            <thead>
+                <tr>
+                    <th>順位</th>
+                    <th>名前</th>
+                    <th>1月レート</th>
+                    <th>前月比</th>
+                </tr>
+            </thead>
+            <tbody id="rankings-body">
+                </tbody>
+        </table>
+    </div>
+</main>
+
+<script>
+document.addEventListener('DOMContentLoaded', generateRankings);
+
+async function generateRankings() {
+    const tableBody = document.getElementById("rankings-body");
+    const months = ["4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月", "1月"];
+    
+    tableBody.innerHTML = '<tr><td colspan="4" style="text-align:center;">読み込み中...</td></tr>';
+
+    try {
+        const response = await fetch("data.txt");
+        if (!response.ok) throw new Error("データファイルが見つかりません");
+        const data = await response.text();
+        
+        const players = data.trim().split('\n').map(line => {
+            const parts = line.split(':');
+            if (parts.length < 11) return null; // 名前 + 10ヶ月分が必要
+
+            const name = parts[0].trim();
+            // 4月〜1月の数値を配列化
+            const history = parts.slice(1, 11).map(v => parseInt(v, 10));
+            
+            const currentRate = history[9]; // 1月のレート
+            const prevRate = history[8];    // 12月のレート
+            
+            return { name, history, currentRate, change: currentRate - prevRate };
+        }).filter(p => p !== null);
+
+        // 1月のレート順にソート
+        players.sort((a, b) => b.currentRate - a.currentRate);
+
+        tableBody.innerHTML = '';
+        
+        players.forEach((player, index) => {
+            // メインの行を作成
+            const row = document.createElement('tr');
+            
+            // 増減のクラス判定
+            let changeClass = 'rate-zero';
+            let changeText = player.change;
+            if (player.change > 0) { changeClass = 'rate-plus'; changeText = `+${player.change}`; }
+            else if (player.change < 0) { changeClass = 'rate-minus'; }
+
+            row.innerHTML = `
+                <td>${index + 1}</td>
+                <td><span class="player-name" onclick="toggleGraph(${index})">${player.name}</span></td>
+                <td>${player.currentRate}</td>
+                <td class="${changeClass}">${changeText}</td>
+            `;
+            tableBody.appendChild(row);
+
+            // グラフ用の隠し行を作成
+            const graphRow = document.createElement('tr');
+            graphRow.className = 'graph-row';
+            graphRow.innerHTML = `
+                <td colspan="4" style="padding:0; border:none;">
+                    <div id="container-${index}" class="graph-container">
+                        <div style="width: 90%; margin: 0 auto; height: 300px;">
+                            <canvas id="chart-${index}"></canvas>
+                        </div>
+                    </div>
+                </td>
+            `;
+            tableBody.appendChild(graphRow);
+
+            // グラフの初期化
+            initChart(`chart-${index}`, player.history, months);
+        });
+
+    } catch (error) {
+        tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center;">エラー: ${error.message}</td></tr>`;
+    }
+}
+
+// グラフを描画する関数
+function initChart(canvasId, data, labels) {
+    const ctx = document.getElementById(canvasId).getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'レート推移',
+                data: data,
+                borderColor: '#3498db',
+                backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                borderWidth: 3,
+                tension: 0.3, // グラフを少し滑らかに
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { beginAtZero: false }
+            }
+        }
+    });
+}
+
+// にょーんって出す関数
+function toggleGraph(index) {
+    const container = document.getElementById(`container-${index}`);
+    container.classList.toggle('open');
+}
+</script>
+
+</body>
+</html>
