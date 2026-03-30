@@ -198,7 +198,10 @@ function initChart(canvasId, data, labels) {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                y: { beginAtZero: false }
+                y: { 
+                    min: -520,  // 縦軸の最小値を固定
+                    max: 400    // 縦軸の最大値を固定
+                }
             }
         }
     });
