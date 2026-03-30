@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>滝地下麻雀順位表 (グラフ起点0版)</title>
+<title>滝地下麻雀順位表 (詳細データ版)</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
     body {
@@ -55,19 +55,75 @@
         color: #2980b9;
     }
 
-    /* グラフを表示する隠し行のスタイル */
+    /* 隠し行のアニメーション */
     .graph-row {
         background-color: #fff;
     }
     .graph-container {
         max-height: 0;
         overflow: hidden;
-        transition: max-height 0.5s ease-out; /* これが「にょーん」の正体 */
+        transition: max-height 0.5s ease-out;
         background-color: #fcfcfc;
     }
     .graph-container.open {
-        max-height: 400px; /* 十分な高さを指定 */
+        max-height: 800px;
         padding: 10px 0;
+        border-bottom: 2px solid #ddd;
+    }
+
+    /* 詳細エリア（スタッツとグラフ）のレイアウト */
+    .details-flex {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-around;
+        align-items: center;
+        padding: 10px;
+        gap: 20px;
+    }
+    
+    /* 成績スタッツのボックス */
+    .stats-container {
+        flex: 1;
+        min-width: 250px;
+        background: #ecf0f1;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+    .stats-container h3 {
+        margin: 0 0 15px 0;
+        font-size: 1.1em;
+        color: #2c3e50;
+        text-align: center;
+        border-bottom: 2px solid #bdc3c7;
+        padding-bottom: 5px;
+    }
+    .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        text-align: center;
+    }
+    .stat-item {
+        background: #fff;
+        padding: 10px 5px;
+        border-radius: 4px;
+        font-size: 0.9em;
+        font-weight: bold;
+        color: #34495e;
+    }
+    .stat-item.avg {
+        grid-column: 1 / -1;
+        font-size: 1.1em;
+        background: #dff9fb;
+        color: #0984e3;
+    }
+
+    /* グラフのボックス */
+    .graph-container-inner {
+        flex: 2;
+        min-width: 300px;
+        height: 300px;
     }
     canvas {
         max-width: 100%;
@@ -83,7 +139,7 @@
 
 <header class="header">
     <h1>滝地下麻雀順位表<br>(2025年度)</h1>
-    <p>名前をクリックすると推移グラフが表示されます</p>
+    <p>名前をクリックすると詳細データとグラフが表示されます</p>
 </header>
 
 <main class="main-content">
@@ -106,46 +162,86 @@
 <script>
 document.addEventListener('DOMContentLoaded', generateRankings);
 
+/**
+ * 名前の表記揺れを吸収する関数
+ * 1. アルファベットをすべて小文字にする
+ * 2. カタカナをすべてひらがなに変換する
+ */
+function normalizeName(name) {
+    if (!name) return "";
+    // 大文字を小文字に変換
+    let normalized = name.toLowerCase();
+    
+    // カタカナをひらがなに変換
+    normalized = normalized.replace(/[\u30A1-\u30F6]/g, function(match) {
+        return String.fromCharCode(match.charCodeAt(0) - 0x60);
+    });
+    
+    return normalized;
+}
+
 async function generateRankings() {
     const tableBody = document.getElementById("rankings-body");
-    
-    // 【修正箇所1】横軸のラベルの先頭に「開始(0)」を追加
     const months = ["開始", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月", "1月"];
     
     tableBody.innerHTML = '<tr><td colspan="4" style="text-align:center;">読み込み中...</td></tr>';
 
     try {
-        const response = await fetch("data.txt");
-        if (!response.ok) throw new Error("データファイルが見つかりません");
-        const data = await response.text();
+        const [res1, res2] = await Promise.all([
+            fetch("data.txt"),
+            fetch("data2.txt").catch(() => null)
+        ]);
+
+        if (!res1.ok) throw new Error("メインデータ(data.txt)が見つかりません");
+        const data = await res1.text();
+
+        // data2.txtの解析（順位データの集計）
+        const statsData = {};
+        if (res2 && res2.ok) {
+            const data2 = await res2.text();
+            const lines2 = data2.split('\n');
+            for (const line of lines2) {
+                if (!line.trim()) continue;
+                
+                const parts = line.trim().split(/\s+/);
+                if (parts.length >= 2) {
+                    const rawName = parts[0];
+                    const rank = parseInt(parts[1], 10);
+                    
+                    // 名前を正規化してキーとして使用する
+                    const normalizedName = normalizeName(rawName);
+                    
+                    if (!statsData[normalizedName]) {
+                        statsData[normalizedName] = { 1: 0, 2: 0, 3: 0, 4: 0, total: 0 };
+                    }
+                    if (rank >= 1 && rank <= 4) {
+                        statsData[normalizedName][rank]++;
+                        statsData[normalizedName].total++;
+                    }
+                }
+            }
+        }
         
+        // data.txtの解析
         const players = data.trim().split('\n').map(line => {
             const parts = line.split(':');
-            if (parts.length < 11) return null; // 名前 + 10ヶ月分が必要
+            if (parts.length < 11) return null;
 
             const name = parts[0].trim();
-            
-            // data.txtの4月〜1月の数値を配列化
             const history = parts.slice(1, 11).map(v => parseInt(v, 10));
-            
-            // 【修正箇所2】グラフ用データ配列の先頭に強制的に「0」を追加
-            // スプレッド構文 [...配列] を使って [0, 4月レート, 5月レート...] という配列を作る
             const graphData = [0, ...history]; 
             
-            // ソート用と前月比計算用（ここは変わらずhistory配列を使う）
-            const currentRate = history[9]; // 1月のレート
-            const prevRate = history[8];    // 12月のレート
+            const currentRate = history[9];
+            const prevRate = history[8];
             
             return { name, graphData, currentRate, change: currentRate - prevRate };
         }).filter(p => p !== null);
 
-        // 1月のレート順にソート（変わらず）
         players.sort((a, b) => b.currentRate - a.currentRate);
 
         tableBody.innerHTML = '';
         
         players.forEach((player, index) => {
-            // メインの行を作成
             const row = document.createElement('tr');
             
             let changeClass = 'rate-zero';
@@ -161,22 +257,63 @@ async function generateRankings() {
             `;
             tableBody.appendChild(row);
 
-            // グラフ用の隠し行を作成
+            // 表示する際も、data.txtの名前を正規化してstatsDataから検索する
+            const normalizedPlayerName = normalizeName(player.name);
+            const pStats = statsData[normalizedPlayerName];
+            
+            let statsHtml = '';
+            
+            if (pStats && pStats.total > 0) {
+                const total = pStats.total;
+                const avgRank = ((pStats[1]*1 + pStats[2]*2 + pStats[3]*3 + pStats[4]*4) / total).toFixed(2);
+                const r1 = ((pStats[1] / total) * 100).toFixed(1);
+                const r2 = ((pStats[2] / total) * 100).toFixed(1);
+                const r3 = ((pStats[3] / total) * 100).toFixed(1);
+                const r4 = ((pStats[4] / total) * 100).toFixed(1);
+
+                statsHtml = `
+                    <div class="stats-container">
+                        <h3>対局数: ${total}回</h3>
+                        <div class="stats-grid">
+                            <div class="stat-item avg">平均順位: ${avgRank}位</div>
+                            <div class="stat-item">1位: ${r1}%</div>
+                            <div class="stat-item">2位: ${r2}%</div>
+                            <div class="stat-item">3位: ${r3}%</div>
+                            <div class="stat-item">4位: ${r4}%</div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                statsHtml = `
+                    <div class="stats-container">
+                        <h3>対局数: 0回</h3>
+                        <div class="stats-grid">
+                            <div class="stat-item avg">平均順位: - 位</div>
+                            <div class="stat-item">1位: - %</div>
+                            <div class="stat-item">2位: - %</div>
+                            <div class="stat-item">3位: - %</div>
+                            <div class="stat-item">4位: - %</div>
+                        </div>
+                    </div>
+                `;
+            }
+
             const graphRow = document.createElement('tr');
             graphRow.className = 'graph-row';
             graphRow.innerHTML = `
                 <td colspan="4" style="padding:0; border:none;">
                     <div id="container-${index}" class="graph-container">
-                        <div style="width: 90%; margin: 0 auto; height: 300px;">
-                            <canvas id="chart-${index}"></canvas>
+                        <div class="details-flex">
+                            ${statsHtml}
+                            <div class="graph-container-inner">
+                                <canvas id="chart-${index}"></canvas>
+                            </div>
                         </div>
                     </div>
                 </td>
             `;
             tableBody.appendChild(graphRow);
 
-            // グラフの初期化
-            // 【修正箇所3】引数をplayer.graphDataに変更
             initChart(`chart-${index}`, player.graphData, months);
         });
 
@@ -185,7 +322,6 @@ async function generateRankings() {
     }
 }
 
-// グラフを描画する関数
 function initChart(canvasId, data, labels) {
     const ctx = document.getElementById(canvasId).getContext('2d');
     new Chart(ctx, {
@@ -198,7 +334,7 @@ function initChart(canvasId, data, labels) {
                 borderColor: '#3498db',
                 backgroundColor: 'rgba(52, 152, 219, 0.1)',
                 borderWidth: 3,
-                tension: 0.3, // グラフを少し滑らかに
+                tension: 0.3,
                 fill: true
             }]
         },
@@ -207,7 +343,6 @@ function initChart(canvasId, data, labels) {
             maintainAspectRatio: false,
             scales: {
                 y: { 
-                    // 【前回要望】縦軸のスケールを統一
                     min: -520,
                     max: 400
                 }
@@ -216,7 +351,6 @@ function initChart(canvasId, data, labels) {
     });
 }
 
-// にょーんって出す関数
 function toggleGraph(index) {
     const container = document.getElementById(`container-${index}`);
     container.classList.toggle('open');
