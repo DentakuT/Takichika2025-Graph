@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>滝地下麻雀順位表 (時系列グラフ版)</title>
+<title>滝地下麻雀順位表 (グラフ起点0版)</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
     body {
@@ -108,7 +108,9 @@ document.addEventListener('DOMContentLoaded', generateRankings);
 
 async function generateRankings() {
     const tableBody = document.getElementById("rankings-body");
-    const months = ["4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月", "1月"];
+    
+    // 【修正箇所1】横軸のラベルの先頭に「開始(0)」を追加
+    const months = ["開始", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月", "1月"];
     
     tableBody.innerHTML = '<tr><td colspan="4" style="text-align:center;">読み込み中...</td></tr>';
 
@@ -122,16 +124,22 @@ async function generateRankings() {
             if (parts.length < 11) return null; // 名前 + 10ヶ月分が必要
 
             const name = parts[0].trim();
-            // 4月〜1月の数値を配列化
+            
+            // data.txtの4月〜1月の数値を配列化
             const history = parts.slice(1, 11).map(v => parseInt(v, 10));
             
+            // 【修正箇所2】グラフ用データ配列の先頭に強制的に「0」を追加
+            // スプレッド構文 [...配列] を使って [0, 4月レート, 5月レート...] という配列を作る
+            const graphData = [0, ...history]; 
+            
+            // ソート用と前月比計算用（ここは変わらずhistory配列を使う）
             const currentRate = history[9]; // 1月のレート
             const prevRate = history[8];    // 12月のレート
             
-            return { name, history, currentRate, change: currentRate - prevRate };
+            return { name, graphData, currentRate, change: currentRate - prevRate };
         }).filter(p => p !== null);
 
-        // 1月のレート順にソート
+        // 1月のレート順にソート（変わらず）
         players.sort((a, b) => b.currentRate - a.currentRate);
 
         tableBody.innerHTML = '';
@@ -140,7 +148,6 @@ async function generateRankings() {
             // メインの行を作成
             const row = document.createElement('tr');
             
-            // 増減のクラス判定
             let changeClass = 'rate-zero';
             let changeText = player.change;
             if (player.change > 0) { changeClass = 'rate-plus'; changeText = `+${player.change}`; }
@@ -169,7 +176,8 @@ async function generateRankings() {
             tableBody.appendChild(graphRow);
 
             // グラフの初期化
-            initChart(`chart-${index}`, player.history, months);
+            // 【修正箇所3】引数をplayer.graphDataに変更
+            initChart(`chart-${index}`, player.graphData, months);
         });
 
     } catch (error) {
@@ -199,8 +207,9 @@ function initChart(canvasId, data, labels) {
             maintainAspectRatio: false,
             scales: {
                 y: { 
-                    min: -520,  // 縦軸の最小値を固定
-                    max: 400    // 縦軸の最大値を固定
+                    // 【前回要望】縦軸のスケールを統一
+                    min: -520,
+                    max: 400
                 }
             }
         }
